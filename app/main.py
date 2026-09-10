@@ -3,7 +3,7 @@ from fastapi import FastAPI
 
 from app.database import engine
 from app import models
-from app.routers import customer
+from app.routers import customer, agent
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -15,6 +15,8 @@ app = FastAPI(
 )
 
 app.include_router(customer.router)
+app.include_router(agent.router)
+
 
 #route defined for root
 @app.get("/")

@@ -51,3 +51,11 @@ class CallResponse(BaseModel):
     notes: str | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentStatisticsResponse(BaseModel):
+    agent_id: int
+    agent_name: str
+    total_calls: int
+    completed_calls: int
+    average_call_duration_seconds: float | None

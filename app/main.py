@@ -3,7 +3,7 @@ from fastapi import FastAPI
 
 from app.database import engine
 from app import models
-from app.routers import customer, agent
+from app.routers import customer, agent, call
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -16,6 +16,7 @@ app = FastAPI(
 
 app.include_router(customer.router)
 app.include_router(agent.router)
+app.include_router(call.router)
 
 
 #route defined for root

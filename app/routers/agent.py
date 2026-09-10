@@ -9,6 +9,7 @@ router = APIRouter(
     tags=["Agent"]
 )
 
+#Post Single Agent
 @router.post(
     "",
     response_model=schemas.AgentResponse,
@@ -43,6 +44,8 @@ def create_agent(
     return new_agent
 
 
+
+#Get all Agents
 @router.get(
     "",
     response_model=list[schemas.AgentResponse]
@@ -53,6 +56,7 @@ def get_agents(
     return db.query(models.Agent).all()
 
 
+#Get an Agent
 @router.get(
     "/{agent_id}",
     response_model=schemas.AgentResponse

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict
 
@@ -31,9 +31,14 @@ class CallCreate(BaseModel):
     customer_id: int
     agent_id: int
     direction: str
-    started_at: datetime
+    started_at : datetime
     notes: str | None = None
 
+
+class CallUpdate(BaseModel):
+    status: str | None = None
+    ended_at: datetime | None = None
+    notes: str | None = None
 
 class CallResponse(BaseModel):
     id: int

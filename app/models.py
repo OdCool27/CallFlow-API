@@ -33,8 +33,8 @@ class Call(Base):
     direction = Column(String(20), nullable=False)
     status = Column(String(30), nullable=False, default="IN_PROGRESS")
 
-    started_at = Column(DateTime, nullable=False)
-    ended_at = Column(DateTime, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
 
     notes = Column(Text, nullable=True)
 

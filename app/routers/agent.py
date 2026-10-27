@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app import models, schemas
@@ -34,11 +35,15 @@ def create_agent(
     new_agent = models.Agent(
         name=agent.name,
         extension=agent.extension,
-        department=agent.department
+        department=agent.department or ""
     )
 
     db.add(new_agent)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "An agent with this extension already exists")
     db.refresh(new_agent)
 
     return new_agent

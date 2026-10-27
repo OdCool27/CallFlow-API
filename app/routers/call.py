@@ -1,206 +1,79 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
 
-router = APIRouter(
-    prefix="/calls",
-    tags=["Calls"]
-)
-
-#Post a Call
-@router.post(
-    "",
-    response_model=schemas.CallResponse,
-    status_code=201
-)
-def create_call(
-        call: schemas.CallCreate,
-        db: Session = Depends(get_db),
-):
-    customer = (
-        db.query(models.Customer)
-        .filter(models.Customer.id == call.customer_id)
-        .first()
-    )
-
-    if customer is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Customer not found"
-        )
-
-    agent = (
-        db.query(models.Agent)
-        .filter(models.Agent.id == call.agent_id)
-        .first()
-    )
+router = APIRouter(prefix="/calls", tags=["Calls"])
 
 
-    if agent is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Agent not found"
-        )
-
-    direction = call.direction.upper()
-
-    if direction not in ["INBOUND", "OUTBOUND"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Direction must be INBOUND or OUTBOUND"
-        )
-
-    new_call = models.Call(
-        customer_id=call.customer_id,
-        agent_id=call.agent_id,
-        direction=direction,
-        status="IN_PROGRESS",
-        started_at=datetime.now(timezone.utc),
-        notes=call.notes
-    )
-
-    db.add(new_call)
-    db.commit()
-    db.refresh(new_call)
-
-    return new_call
-
-#Get all Calls w/ Query Parameters included
-@router.get(
-    "",
-    response_model=list[schemas.CallResponse]
-)
-def get_calls(
-    status: str | None = None,
-    agent_id: int | None = None,
-    db: Session = Depends(get_db)
-):
+def filtered_calls(db, agent_id=None, extension=None, start=None, end=None):
     query = db.query(models.Call)
+    if agent_id is not None:
+        query = query.filter(models.Call.agent_id == agent_id)
+    if extension:
+        channel_call_ids = db.query(models.CallChannel.call_id).filter(models.CallChannel.extension == extension)
+        query = query.filter(or_(models.Call.from_extension == extension, models.Call.to_extension == extension,
+                                 models.Call.id.in_(channel_call_ids)))
+    # Date ranges refer to call start, UTC, inclusive start and exclusive end.
+    def utc(value):
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+    if start and end and utc(start) >= utc(end):
+        raise HTTPException(422, "start must be before end")
+    if start:
+        query = query.filter(models.Call.started_at >= utc(start))
+    if end:
+        query = query.filter(models.Call.started_at < utc(end))
+    return query
 
+
+@router.post("", status_code=409)
+def create_call():
+    raise HTTPException(409, "Calls are created by Asterisk AMI events. Dial a registered SIP endpoint.")
+
+
+@router.get("", response_model=list[schemas.CallResponse])
+def get_calls(status: str | None = None, agent_id: int | None = None, extension: str | None = None,
+              start: datetime | None = None, end: datetime | None = None,
+              limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
+    query = filtered_calls(db, agent_id, extension, start, end)
     if status:
-        query = query.filter(
-            models.Call.status == status.upper()
-        )
-
-    if agent_id:
-        query = query.filter(
-            models.Call.agent_id == agent_id
-        )
-
-    return query.all()
+        query = query.filter(models.Call.status == status.upper())
+    return query.order_by(models.Call.started_at.desc(), models.Call.id.desc()).offset(offset).limit(limit).all()
 
 
+@router.get("/active", response_model=list[schemas.CallResponse])
+def active_calls(db: Session = Depends(get_db)):
+    return db.query(models.Call).filter(models.Call.source == "AMI", models.Call.ended_at.is_(None)).all()
 
-#Get a single call
-@router.get(
-    "/{call_id}",
-    response_model=schemas.CallResponse
-)
-def get_call(
-    call_id: int,
-    db: Session = Depends(get_db)
-):
-    call = (
-        db.query(models.Call)
-        .filter(models.Call.id == call_id)
-        .first()
-    )
 
+@router.get("/{call_id}", response_model=schemas.CallResponse)
+def get_call(call_id: int, db: Session = Depends(get_db)):
+    call = db.get(models.Call, call_id)
     if call is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Call not found"
-        )
-
+        raise HTTPException(404, "Call not found")
     return call
 
 
-#Update a Call
-@router.patch(
-    "/{call_id}",
-    response_model=schemas.CallResponse
-)
-def update_call(
-        call_id: int,
-        call_update: schemas.CallUpdate,
-        db: Session = Depends(get_db)
-):
-    call = (
-        db.query(models.Call)
-        .filter(models.Call.id == call_id)
-        .first()
-    )
-
-    if call is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Call not found"
-        )
-
-    if call_update.status is not None:
-        status = call_update.status.upper()
-
-        allowed_statuses = ["IN_PROGRESS", "COMPLETED", "MISSED", "FAILED"]
-
-        if status not in allowed_statuses:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Status must be one of {allowed_statuses}"
-            )
-
-        call.status = status
-
-
-    if call_update.ended_at is not None:
-        started_at = call.started_at
-        ended_at = call_update.ended_at
-
-        if started_at.tzinfo is None:
-            started_at = started_at.replace(tzinfo=timezone.utc)
-
-        if ended_at.tzinfo is None:
-            ended_at = ended_at.replace(tzinfo=timezone.utc)
-
-        if ended_at < started_at:
-            raise HTTPException(
-                status_code=400,
-                detail="Call end time cannot be before start time"
-            )
-
-        call.ended_at = call_update.ended_at
-
-    if call_update.notes is not None:
-        call.notes = call_update.notes
-
+@router.patch("/{call_id}", response_model=schemas.CallResponse)
+def update_call(call_id: int, update: schemas.CallUpdate, db: Session = Depends(get_db)):
+    call = get_call(call_id, db)
+    changes = update.model_dump(exclude_unset=True)
+    if changes.get("customer_id") is not None and db.get(models.Customer, changes["customer_id"]) is None:
+        raise HTTPException(404, "Customer not found")
+    for name, value in changes.items():
+        setattr(call, name, value)
     db.commit()
     db.refresh(call)
-
     return call
 
 
-#Delete a Call
-@router.delete(
-    "/{call_id}",
-    status_code=204
-)
-def delete_call(
-    call_id: int,
-    db: Session = Depends(get_db)
-):
-    call = (
-        db.query(models.Call)
-        .filter(models.Call.id == call_id)
-        .first()
-    )
-
-    if call is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Call not found"
-        )
-
+@router.delete("/{call_id}", status_code=204)
+def delete_call(call_id: int, db: Session = Depends(get_db)):
+    call = get_call(call_id, db)
+    if call.source == "AMI":
+        raise HTTPException(409, "AMI call history is retained for event correlation")
     db.delete(call)
     db.commit()

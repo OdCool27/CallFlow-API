@@ -1,0 +1,40 @@
+# Local configuration (publish only the example)
+.env
+.env.*
+!.env.example
+
+# Python environments, bytecode, and tooling output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local runtime databases, sidecars, migration backups, and AMI ownership locks
+*.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.*
+*.ami.lock
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and packet captures
+*.log
+logs/
+*.pcap
+*.pcapng

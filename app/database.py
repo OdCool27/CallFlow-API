@@ -1,30 +1,24 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from app.config import settings
 
-Database_URL = "sqlite:///./callflow.db"
+if not settings.database_url.startswith("sqlite:"):
+    raise ValueError("This runtime supports SQLite; sql/ contains separate SQL Server examples")
+
+engine = create_engine(settings.database_url, connect_args={"check_same_thread": False, "timeout": 15})
 
 
-#facilitates the connection to the database
-engine = create_engine(
-    Database_URL,
-    connect_args={"check_same_thread": False} #verifies if the same thread that created the connection is using it. Not necessary here.
-)
+@event.listens_for(engine, "connect")
+def sqlite_constraints(connection, _):
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute("PRAGMA busy_timeout=15000")
 
-#A factory for creating sessions that provides communication channel with database
-SessionLocal = sessionmaker(
-    autocommit=False, #not automatically save each db change immediately
-    autoflush=False, #sends pending changes to the db without current transaction
-    bind=engine #assigns the configured engine to the session
-)
 
-#Required for ORM entities
+SessionLocal = sessionmaker(autoflush=False, bind=engine)
 Base = declarative_base()
 
-def get_db():
-    db = SessionLocal() #creates the session
 
-    try:
-        yield db #temp gives db session to requested route
-    finally:
-        db.close()
+def get_db():
+    with SessionLocal() as db:
+        yield db
